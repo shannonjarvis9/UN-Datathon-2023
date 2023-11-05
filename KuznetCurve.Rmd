@@ -1,0 +1,103 @@
+---
+title: 'UN Datathon: Kuznet Curve'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plm)
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# data also from: https://stats.oecd.org/Index.aspx?DataSetCode=WSECTOR 
+Yearly_population_GDP_and_waste_data <- read_excel("C:/Users/jarvish/Downloads/Yearly population GDP and waste data.xlsx")
+Country_data_for_only_the_latest_year <- read_excel("C:/Users/jarvish/Downloads/Country data for only the latest year.xlsx")
+
+WSECTOR_05112023191228126 <- read_excel("C:/Users/jarvish/Downloads/WSECTOR_05112023191228126.xlsx")
+waste <- WSECTOR_05112023191228126  %>% filter(ISIC == "INT_CAPITA")
+
+data <- left_join(waste, Yearly_population_GDP_and_waste_data, by = c("Country", "Year"))
+```
+
+```{r}
+
+
+ggplot(data = data, aes(x=`GDP per capita (current USD)`, y = Value)) + 
+  geom_point(color = "gray", shape = 19) + 
+  geom_smooth(method = "lm", formula = y~ poly(x,3), color = "lightblue", linetype = "dashed") + 
+  labs(x = "GDP Per Capita ($USD)", y = "Primary waste per capita (Kg)", title = "All countries") + 
+  theme_minimal()
+```
+
+```{r}
+# create plots by country
+unique_countries <- unique(data$Country)
+  
+for (country in unique_countries) {
+  temp_df <- data[data$Country == country, ]
+  
+  if(nrow(temp_df) <= 2){break} 
+  # Cubic model of the above
+  p <- ggplot(data = temp_df, aes(x=`GDP per capita (current USD)`, y = Value)) + 
+    geom_point(color = "gray", shape = 19, size = 2) + 
+    geom_smooth(method = "lm", formula = y~ poly(x,2), color = "lightblue", linetype = "dashed", se = FALSE, linewidth = 1) + 
+    labs(x = "GDP Per Capita ($USD)", y = "Primary waste per capita (Kg)", title = paste0(country)) + 
+    theme_minimal() + 
+    theme(plot.margin = margin(1, 0, 1, 0, "cm"))
+  
+  print(p)
+}
+
+
+for (country in unique_countries) {
+  temp_df <- data[data$Country == country, ] %>% 
+    rename("Primary waste per capita (Kg)" = "Value") %>% 
+    select(c("Year", "GDP per capita (current USD)", "Primary waste per capita (Kg)")) %>% 
+    pivot_longer(!Year, names_to = "param", values_to = "num")
+  
+    if(nrow(temp_df) <= 2){break} 
+  
+  # Cubic model of the above
+ p <- ggplot(data = temp_df, aes(x=Year, y =num)) + 
+    facet_wrap(~param, strip.position = "left", nrow = 2, scales = "free_y") + 
+    geom_point(color = "gray", shape = 19) + 
+    geom_smooth(method = "lm", formula = y~ poly(x,1), color = "lightblue", linetype = "dashed", se = FALSE, linewidth = 1) + 
+    labs(y = "", x = "Year", title = paste0(country)) + 
+    theme_minimal() + 
+    theme(strip.placement = "outside", 
+          plot.margin = margin(1, 0, 1, 0, "cm"))
+ 
+ print(p)
+  
+}
+```
+
+
+```{r}
+# redefine GDP for simplicity 
+data$GDP <- data$`GDP per capita (current USD)`
+
+# quadratic model 
+mod1 <- lm(Value ~ GDP + I(GDP^2) + Year, data = data)
+summary(mod1)
+
+# cubic model 
+mod2 <- lm(Value ~ GDP + I(GDP^2) + I(GDP^3) + Year, data = data)
+summary(mod2)
+
+
+# Fixed effects model 
+# can't estimate cubic FE due to multicolinearity 
+pannel_dat <- pdata.frame(data, index = c("Country", "Year"))
+fe_model <- plm(Value ~ GDP + I(GDP^2) , data = pannel_dat, model = "within")
+summary(fe_model)
+
+
+```
+
+The Kuznat curve does not effectively for modeling industrial waste per capita by GDP per capita. 
+Adding explanatory variables may assist in modelling the relationship. 
